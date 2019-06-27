@@ -315,10 +315,7 @@ def get_weights(ob, name):
     return arr
 
 
-def get_bmesh(obj=None):
-    ob = get_last_object()[1]
-    if ob is None:
-        ob = obj
+def get_bmesh(ob):
     obm = bmesh.new()
     if ob.mode == 'OBJECT':
         obm.from_mesh(ob.data)
@@ -457,7 +454,7 @@ def add_virtual_springs(remove=False):
         return
     ob = lo[1]
     cloth = get_cloth(ob)
-    obm = get_bmesh()
+    obm = get_bmesh(ob)
     obm.verts.ensure_lookup_table()
     count = len(obm.verts)
     idxer = np.arange(count, dtype=np.int32)
@@ -475,24 +472,17 @@ def add_virtual_springs(remove=False):
         in_sel = np.in1d(ls, idxer[sel])
 
         deleter = np.arange(ls.shape[0], dtype=np.int32)[in_sel]
-        #reduce = np.delete(cloth.virtual_springs, deleter, axis=0)
-        #cloth.virtual_springs = reduce
-        
-        #if cloth.virtual_springs.shape[0] == 0:
-        #    cloth.virtual_springs.shape = (0, 2)
 
         for i in reversed(deleter):
             ob.modeling_cloth_virtual_springs.remove(i)
 
         return
 
-    #existing = np.append(cloth.eidx, cloth.virtual_springs, axis=0)
     existing = np.append(cloth.eidx, virtual_springs, axis=0)
     flip = existing[:, ::-1]
     existing = np.append(existing, flip, axis=0)
     ls = existing[:,0]
         
-    springs = []
     for i in idxer[sel]:
 
         # to avoid duplicates:
@@ -502,17 +492,10 @@ def add_virtual_springs(remove=False):
         not_in = selected[~np.in1d(selected, v_in_r)]
         idx_set = not_in[not_in != i]
         for sv in idx_set:
-            #springs.append([i, sv])
             new_vs = ob.modeling_cloth_virtual_springs.add()
             new_vs.vertex_id_1 = i
             new_vs.vertex_id_2 = sv
 
-    #virtual_springs = np.array(springs, dtype=np.int32)
-    #
-    #if virtual_springs.shape[0] == 0:
-    #    virtual_springs.shape = (0, 2)
-    #
-    #cloth.virtual_springs = np.append(cloth.virtual_springs, virtual_springs, axis=0)
     # gets appended to eidx in the cloth_init function after calling get connected polys in case geometry changes
 
 
@@ -660,23 +643,20 @@ def get_spring_mix(ob, eidx):
 def update_pin_group():
     """Updates the cloth data after changing mesh or vertex weight pins"""
     ob = get_last_object()[1]
-    if ob.name in data:
-        #create_instance(new=False)
+    cloth = get_cloth(ob)
+    if cloth:
         create_instance(ob)
 
 
 def collision_data_update(self, context):
-    #if self.modeling_cloth_self_collision:    
-    #    create_instance(new=False)    
     ob = self.id_data
     if ob.modeling_cloth_self_collision:    
         create_instance(ob)
 
 
 def refresh_noise(self, context):
-    ob = self.id_data
-    cloth = get_cloth(ob)
-    if self.name in data:
+    cloth = get_cloth(self)
+    if cloth:
         zeros = np.zeros(cloth.count, dtype=np.float32)
         random = np.random.random(cloth.count)
         zeros[:] = random
@@ -962,18 +942,14 @@ def create_instance(ob):
     # Spring Relationships
     
     # Extend Springs
-    #get_extend_springs(cloth) # uni, e_uni, sew_eidx, multi_groups, pure
     get_extend_springs(ob) # uni, e_uni, sew_eidx, multi_groups, pure
     
     if ob.modeling_cloth_extend_springs:
-        #get_extend_springs(cloth, extend_springs=True)
         get_extend_springs(ob, extend_springs=True)
     
     # Virtual Springs
-    #if cloth.virtual_springs.shape[0] > 0:
-    #    cloth.eidx = np.append(cloth.eidx, cloth.virtual_springs, axis=0)
     if len(ob.modeling_cloth_virtual_springs) > 0:
-        virtual_springs = np.array([[vs.vertex_id_1, vs.vertex_id_2] for vs in ob.mclo.virtual_springs])
+        virtual_springs = np.array([[vs.vertex_id_1, vs.vertex_id_2] for vs in ob.modeling_cloth_virtual_springs])
         cloth.eidx = np.append(cloth.eidx, virtual_springs, axis=0)
     
     cloth.eidx_tiler = cloth.eidx.T.ravel()    
@@ -1022,9 +998,6 @@ def create_instance(ob):
     noise_zeros[:] = random
     cloth.noise = ((noise_zeros + -0.5) * ob.modeling_cloth_noise * 0.1)[:, nax]
     
-    #cloth.waiting = False
-    #cloth.clicked = False # for the grab tool
-    
     # this helps with extra springs behaving as if they had more mass---->>>
     #cloth.mix = mixology[unpinned][:, nax]
     # -------------->>>
@@ -1043,7 +1016,9 @@ def create_instance(ob):
     cloth.wind = np.zeros(cloth.tri_co.shape, dtype=np.float32)
     cloth.inflate = np.zeros(cloth.tri_co.shape, dtype=np.float32)
 
-    bpy.ops.object.mode_set(mode=mode)
+    # This can sometimes cause error
+    try: bpy.ops.object.mode_set(mode=mode)
+    except: pass
     
     # for use with a static source shape:
     cloth.source_angles = bend_springs(ob, cloth.sco, None)
@@ -1081,20 +1056,14 @@ def run_handler(ob): #, cloth):
     sce = bpy.context.scene
     extra_data = sce.modeling_cloth_data_set_extra
     #if ob.modeling_cloth_handler_frame | bpy.app.timers.is_registered():
-    #if True:
-    # pause the cloth engine if the current cloth object is in edit mode
-    #if ob.mode == 'EDIT':
+    # pause the cloth engine if the current cloth object is not in object mode
     if not ob.modeling_cloth_waiting and ob.mode != 'OBJECT':
         ob.modeling_cloth_waiting = True
-        #cloth.waiting = True
-    #if cloth.waiting:    
     if ob.modeling_cloth_waiting:
         if ob.mode == 'OBJECT':
-            #update_pin_group()
             create_instance(ob)
             ob.modeling_cloth_waiting = False
 
-    #if not cloth.waiting:
     if not ob.modeling_cloth_waiting:
 
         cloth = get_cloth(ob)
@@ -1212,14 +1181,10 @@ def run_handler(ob): #, cloth):
             # move pinned back
             cloth.co[~cloth.pin_bool] = cloth.vel_start[~cloth.pin_bool]
 
-            #if len(cloth.pin_list) > 0:
-            #    hook_co = np.array([ob.matrix_world.inverted() @ i.matrix_world.to_translation() for i in cloth.hook_list])
-            #    cloth.co[cloth.pin_list] = hook_co
             if pin_list:
                 cloth.co[pin_list] = hook_co
             
             # grab inside spring iterations
-            #if cloth.clicked: # for the grab tool
             if ob.modeling_cloth_clicked: # for the grab tool
                 cloth.co[extra_data['vidx']] = np.array(extra_data['stored_vidx']) + np.array(+ extra_data['move'])   
 
@@ -1255,7 +1220,6 @@ def run_handler(ob): #, cloth):
         wind_vec = np.array([x,y,z])
         check_wind = wind_vec != 0
         if np.any(check_wind):
-            #generate_wind(wind_vec / np.array(ob.scale), cloth)            
             generate_wind(wind_vec / np.array(ob.scale), ob)            
 
         # inflate
@@ -1327,9 +1291,6 @@ def run_handler(ob): #, cloth):
 
         cloth.co[~cloth.pin_bool] = cloth.vel_start[~cloth.pin_bool]
         
-        #if len(cloth.pin_list) > 0:
-        #    cloth.co[cloth.pin_list] = hook_co
-        #    cloth.vel[cloth.pin_list] = 0
         if pin_list:
             cloth.co[pin_list] = hook_co
             cloth.vel[pin_list] = 0
@@ -2290,9 +2251,9 @@ def handler_frame(scene):
     handler_unified(scene, frame_update=True)
 
 
-@persistent
 def mc_handler():
     handler_unified(bpy.context.scene, frame_update=False)
+    return 0
 
 
 def handler_unified(scene, frame_update=False):
@@ -2340,14 +2301,12 @@ def update_extend_springs(self, context):
     ob = get_last_object()[1]
     cloth = get_cloth(ob)
     if ob.modeling_cloth_extend_springs:    
-        #get_extend_springs(cloth, extend_springs=True)
         get_extend_springs(ob, extend_springs=True)
         svecs = cloth.sco[cloth.eidx[:, 1]] - cloth.sco[cloth.eidx[:, 0]]
         cloth.sdots = np.einsum('ij,ij->i', svecs, svecs)        
         cloth.eidx_tiler = cloth.eidx.T.ravel()
         return
 
-    #get_extend_springs(cloth)
     get_extend_springs(ob)
     svecs = cloth.sco[cloth.eidx[:, 1]] - cloth.sco[cloth.eidx[:, 0]]
     cloth.sdots = np.einsum('ij,ij->i', svecs, svecs)        
@@ -3115,6 +3074,8 @@ def refresh_cloth_data(scene):
         if cp.ob:
             create_collider(cp.ob)
 
+    if not bpy.app.timers.is_registered(mc_handler):
+        bpy.app.timers.register(mc_handler)        
 
 class ModelingClothPanel(bpy.types.Panel):
     """Modeling Cloth Panel"""
