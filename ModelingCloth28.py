@@ -942,10 +942,10 @@ def create_instance(ob):
     # Spring Relationships
     
     # Extend Springs
-    get_extend_springs(ob) # uni, e_uni, sew_eidx, multi_groups, pure
-    
     if ob.modeling_cloth_extend_springs:
         get_extend_springs(ob, extend_springs=True)
+    else:
+        get_extend_springs(ob) # uni, e_uni, sew_eidx, multi_groups, pure
     
     # Virtual Springs
     if len(ob.modeling_cloth_virtual_springs) > 0:
