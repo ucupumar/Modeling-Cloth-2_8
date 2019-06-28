@@ -36,7 +36,7 @@
 
 bl_info = {
     "name": "Modeling Cloth",
-    "author": "Rich Colburn, email: the3dadvantage@gmail.com",
+    "author": "Rich Colburn (email: the3dadvantage@gmail.com), Yusuf Umar (@ucupumar)",
     "version": (1, 0),
     "blender": (2, 80, 0),
     "location": "View3D > Extended Tools > Modeling Cloth",
@@ -466,7 +466,6 @@ def add_virtual_springs(remove=False):
         virtual_springs.shape = (0, 2)
 
     if remove:
-        #ls = cloth.virtual_springs[:, 0]
         ls = virtual_springs[:, 0]
         
         in_sel = np.in1d(ls, idxer[sel])
@@ -475,7 +474,6 @@ def add_virtual_springs(remove=False):
 
         for i in reversed(deleter):
             ob.modeling_cloth_virtual_springs.remove(i)
-
         return
 
     existing = np.append(cloth.eidx, virtual_springs, axis=0)
@@ -548,7 +546,6 @@ def delete_giude():
         bpy.data.meshes.remove(guide_mesh)
 
 
-#def update_source(cloth):
 def update_source(ob):
     cloth = get_cloth(ob)
     # measure bend source if using dynamic source:
@@ -644,7 +641,7 @@ def update_pin_group():
     """Updates the cloth data after changing mesh or vertex weight pins"""
     ob = get_last_object()[1]
     cloth = get_cloth(ob)
-    if cloth:
+    if cloth is not None:
         create_instance(ob)
 
 
@@ -656,7 +653,7 @@ def collision_data_update(self, context):
 
 def refresh_noise(self, context):
     cloth = get_cloth(self)
-    if cloth:
+    if cloth is not None:
         zeros = np.zeros(cloth.count, dtype=np.float32)
         random = np.random.random(cloth.count)
         zeros[:] = random
@@ -884,6 +881,7 @@ class Cloth(object):
 
 def create_instance(ob):
     """Creates instance of cloth object with attributes needed for engine"""
+
     sce = bpy.context.scene
     data = sce.modeling_cloth_data_set
 
@@ -911,7 +909,7 @@ def create_instance(ob):
     cloth.idxer = np.arange(len(ob.data.vertices), dtype=np.int32)
     # data only accesible through object mode
     mode = ob.mode
-    if mode == 'EDIT':
+    if mode != 'OBJECT':
         bpy.ops.object.mode_set(mode='OBJECT')
 
     # data is read from a source shape and written to the display shape so we can change the target springs by changing the source shape
@@ -1016,7 +1014,7 @@ def create_instance(ob):
     cloth.wind = np.zeros(cloth.tri_co.shape, dtype=np.float32)
     cloth.inflate = np.zeros(cloth.tri_co.shape, dtype=np.float32)
 
-    # This can sometimes cause error
+    # Use try and catch because this sometimes can cause error
     try: bpy.ops.object.mode_set(mode=mode)
     except: pass
     
@@ -1263,11 +1261,6 @@ def run_handler(ob): #, cloth):
         if ob.modeling_cloth_object_detect:
             if ob.modeling_cloth_self_collision:
                 self_collide(ob)
-            
-            #if extra_data['colliders'] is not None:
-            #    for i, val in extra_data['colliders'].items():
-            #        if val.ob != ob:
-            #            object_collide(cloth, val)
 
             cull_ids = []
             for i, cp in enumerate(sce.modeling_cloth_collider_pointers):
@@ -1276,8 +1269,6 @@ def run_handler(ob): #, cloth):
                     cull_ids.append(i)
                     continue
 
-                #if cp.ob == ob:    
-                #    self_collide(ob)
                 if cp.ob != ob:
                     object_collide(ob, cp.ob)
 
@@ -1295,7 +1286,6 @@ def run_handler(ob): #, cloth):
             cloth.co[pin_list] = hook_co
             cloth.vel[pin_list] = 0
 
-        #if cloth.clicked: # for the grab tool
         if ob.modeling_cloth_clicked: # for the grab tool
             cloth.co[extra_data['vidx']] = np.array(extra_data['stored_vidx']) + np.array(+ extra_data['move'])
 
@@ -2202,12 +2192,10 @@ def create_self_collider(ob):
 
 # collide object updater
 def collision_object_update(self, context):
-    #init_cloth(self, context)
-
     """Updates the collider object"""    
     sce = context.scene
     col_data = sce.modeling_cloth_data_set_colliders
-    ob = self.id_data
+    ob = self
     collide = self.modeling_cloth_object_collision
 
     if collide:
@@ -2349,7 +2337,6 @@ def init_cloth(self, context):
         return
 
     data = sce.modeling_cloth_data_set
-    #extra_data = sce.modeling_cloth_data_set_extra
     sce.modeling_cloth_last_object = ob
     #if "colliders"    
         #extra_data['colliders'] = None
@@ -2528,7 +2515,6 @@ class ModelingClothPin(bpy.types.Operator):
 
     def invoke(self, context, event):
         context.scene.modeling_cloth_pin_alert = True
-
         context.window_manager.modal_handler_add(self)
         return {'RUNNING_MODAL'}
 
@@ -2671,7 +2657,7 @@ class ModelingClothDrag(bpy.types.Operator):
             self.stored_mouse = None
             bpy.context.window.cursor_set("DEFAULT")
             scene.modeling_cloth_drag_alert = False
-            return {'FINISHED'}
+            return {'CANCELLED'}
 
         return {'RUNNING_MODAL'}
 
@@ -2704,7 +2690,7 @@ class DeletePins(bpy.types.Operator):
     def execute(self, context):
 
         ob = get_last_object() # returns tuple with list and last cloth objects or None
-        if not ob: return {'CANCELLED'}
+        if ob is None: return {'CANCELLED'}
 
         for i, pin in reversed(list(enumerate(ob[1].modeling_cloth_pins))):
             bpy.data.objects.remove(pin.hook)
@@ -2722,8 +2708,7 @@ class SelectPins(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}    
     def execute(self, context):
         ob = get_last_object() # returns list and last cloth objects or None
-        if not ob: return {'CANCELLED'}
-        #bpy.ops.object.select_all(action='DESELECT')
+        if ob is None: return {'CANCELLED'}
         for pin in ob[1].modeling_cloth_pins:
             pin.hook.select_set(True)
 
@@ -3033,11 +3018,11 @@ def create_properties():
     # ---------------------------->>>
 
     # property dictionaries
-    #if "modeling_cloth_data_set" not in dir(bpy.types.Scene):
-    bpy.types.Scene.modeling_cloth_data_set = {} 
-    bpy.types.Scene.modeling_cloth_data_set_colliders = {}
-    bpy.types.Scene.modeling_cloth_data_set_self_colliders = {}
-    bpy.types.Scene.modeling_cloth_data_set_extra = {} 
+    if "modeling_cloth_data_set" not in dir(bpy.types.Scene):
+        bpy.types.Scene.modeling_cloth_data_set = {} 
+        bpy.types.Scene.modeling_cloth_data_set_extra = {} 
+        bpy.types.Scene.modeling_cloth_data_set_colliders = {}
+        bpy.types.Scene.modeling_cloth_data_set_self_colliders = {}
     
         
 def remove_properties():            
@@ -3056,9 +3041,9 @@ def remove_properties():
 
     # data storage
     del(bpy.types.Scene.modeling_cloth_data_set)
+    del(bpy.types.Scene.modeling_cloth_data_set_extra)
     del(bpy.types.Scene.modeling_cloth_data_set_colliders)
     del(bpy.types.Scene.modeling_cloth_data_set_self_colliders)
-    del(bpy.types.Scene.modeling_cloth_data_set_extra)
 
 
 @persistent
@@ -3073,7 +3058,8 @@ def refresh_cloth_data(scene):
     for cp in scene.modeling_cloth_collider_pointers:
         if cp.ob:
             create_collider(cp.ob)
-
+    
+    # Register timer after loading because it can't be persistent
     if not bpy.app.timers.is_registered(mc_handler):
         bpy.app.timers.register(mc_handler)        
 
@@ -3329,6 +3315,7 @@ def unregister():
     bpy.utils.unregister_class(RemoveVirtualSprings)
     bpy.utils.unregister_class(ModelingClothSew)
     bpy.utils.unregister_class(ApplyClothToMesh)
+    
     
     bpy.utils.unregister_class(CollisionSeries)
     bpy.utils.unregister_class(CollisionSeriesKindle)
